@@ -79,57 +79,93 @@ export const parseJSON = (text: string, fallback: any = null) => {
   
   const cleanText = text.trim();
   
-  try {
-    // Try direct parse first
-    return JSON.parse(cleanText);
-  } catch (e) {
-    // Try to extract from markdown code blocks
-    const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (match && match[1]) {
-      try {
-        return JSON.parse(match[1].trim());
-      } catch (e2) {
-        // Fallback to finding the first { and last }
-        const firstBrace = cleanText.indexOf('{');
-        const lastBrace = cleanText.lastIndexOf('}');
-        if (firstBrace !== -1 && lastBrace !== -1) {
-          try {
-            return JSON.parse(cleanText.substring(firstBrace, lastBrace + 1));
-          } catch (e3) {
-            console.error("Failed to parse extracted JSON from block:", match[1]);
-            return fallback;
+  const tryParse = (jsonStr: string) => {
+    try {
+      return JSON.parse(jsonStr);
+    } catch (e) {
+      // Try to fix truncated JSON
+      let fixedJson = jsonStr;
+      const stack: string[] = [];
+      for (let i = 0; i < fixedJson.length; i++) {
+        const char = fixedJson[i];
+        if (char === '{') stack.push('}');
+        else if (char === '[') stack.push(']');
+        else if (char === '}' || char === ']') {
+          if (stack.length > 0 && stack[stack.length - 1] === char) {
+            stack.pop();
           }
         }
-        return fallback;
       }
-    }
-    
-    // Fallback to finding the first { and last }
-    const firstBrace = cleanText.indexOf('{');
-    const lastBrace = cleanText.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      try {
-        return JSON.parse(cleanText.substring(firstBrace, lastBrace + 1));
-      } catch (e3) {
-        console.error("Failed to parse JSON between braces:", cleanText.substring(firstBrace, lastBrace + 1));
-        return fallback;
+      
+      // If we have unclosed braces/brackets, try to close them
+      if (stack.length > 0) {
+        fixedJson += stack.reverse().join('');
+        try {
+          return JSON.parse(fixedJson);
+        } catch (e2) {
+          // If still failing, try to remove the last comma if it exists before closing
+          let secondAttempt = jsonStr.trim();
+          if (secondAttempt.endsWith(',')) {
+            secondAttempt = secondAttempt.slice(0, -1);
+          }
+          // Re-calculate stack for the second attempt
+          const stack2: string[] = [];
+          for (let i = 0; i < secondAttempt.length; i++) {
+            const char = secondAttempt[i];
+            if (char === '{') stack2.push('}');
+            else if (char === '[') stack2.push(']');
+            else if (char === '}' || char === ']') {
+              if (stack2.length > 0 && stack2[stack2.length - 1] === char) {
+                stack2.pop();
+              }
+            }
+          }
+          secondAttempt += stack2.reverse().join('');
+          try {
+            return JSON.parse(secondAttempt);
+          } catch (e3) {
+            return null;
+          }
+        }
       }
+      return null;
     }
-    
-    // If it's an array
-    const firstBracket = cleanText.indexOf('[');
-    const lastBracket = cleanText.lastIndexOf(']');
-    if (firstBracket !== -1 && lastBracket !== -1) {
-      try {
-        return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
-      } catch (e4) {
-        console.error("Failed to parse JSON between brackets:", cleanText.substring(firstBracket, lastBracket + 1));
-        return fallback;
-      }
-    }
+  };
 
-    return fallback;
+  // Try direct parse first
+  const direct = tryParse(cleanText);
+  if (direct) return direct;
+
+  // Try to extract from markdown code blocks
+  const match = cleanText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (match && match[1]) {
+    const fromBlock = tryParse(match[1].trim());
+    if (fromBlock) return fromBlock;
   }
+  
+  // Fallback to finding the first { and last }
+  const firstBrace = cleanText.indexOf('{');
+  const lastBrace = cleanText.lastIndexOf('}');
+  if (firstBrace !== -1) {
+    const content = lastBrace !== -1 && lastBrace > firstBrace 
+      ? cleanText.substring(firstBrace, lastBrace + 1)
+      : cleanText.substring(firstBrace);
+    const fromBraces = tryParse(content);
+    if (fromBraces) return fromBraces;
+  }
+  
+  // If it's an array
+  const firstBracket = cleanText.indexOf('[');
+  const lastBracket = cleanText.lastIndexOf(']');
+  if (firstBracket !== -1) {
+    const content = lastBracket !== -1 && lastBracket > firstBracket
+      ? cleanText.substring(firstBracket, lastBracket + 1)
+      : cleanText.substring(firstBracket);
+    const fromBrackets = tryParse(content);
+    if (fromBrackets) return fromBrackets;
+  }
+
+  return fallback;
 };
 
 export const getCareerRoadmap = async (currentRole: string, targetRole: string, skills: string, apiSettings?: any) => {
@@ -281,18 +317,30 @@ export const analyzeSecurity = async (code: string, fileName: string, apiSetting
 };
 
 export const generateArchitecture = async (prompt: string, apiSettings?: any) => {
-  const systemPrompt = `You are a Senior Cloud Architect. Generate a system architecture blueprint in JSON format.
+  const systemPrompt = `You are a Senior Cloud Architect. Generate a system architecture blueprint.
   TYPE: DATA
   SCHEMA: {
     "label": "string",
     "description": "string",
+    "structure": {
+      "label": "string",
+      "description": "string",
+      "components": [
+        {
+          "label": "string",
+          "description": "string",
+          "type": "string",
+          "subcomponents": []
+        }
+      ]
+    },
     "files": [
       { "name": "string", "content": "string", "language": "string" }
     ]
   }`;
   
   const response = await callAI('roadmap', `Generate architecture for: ${prompt}`, systemPrompt, apiSettings);
-  return parseJSON(response.text, { label: "Custom Architecture", description: "AI Generated", files: [] });
+  return parseJSON(response.text, { label: "Custom Architecture", description: "AI Generated", structure: null, files: [] });
 };
 export const performPersonaAudit = async (resumeText: string, jobDescription?: string, apiSettings?: any) => {
   const prompt = `Perform a dual-persona audit on this resume${jobDescription ? ` for a ${jobDescription} role` : ''}:

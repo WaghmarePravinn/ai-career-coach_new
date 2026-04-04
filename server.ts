@@ -43,6 +43,7 @@ app.post("/api/ai/generate", async (req, res) => {
             { role: "system", content: systemInstruction || "You are a helpful career coach." },
             { role: "user", content: prompt }
           ],
+          max_tokens: 4000,
         }),
       });
 

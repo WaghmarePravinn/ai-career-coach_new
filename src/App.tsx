@@ -46,6 +46,7 @@ import ReactMarkdown from 'react-markdown';
 import { cn } from './lib/utils';
 import { handleFirestoreError, OperationType } from './lib/firestore-utils';
 import { ResumeUpload } from './components/ResumeUpload';
+import { ArchitectureVisualizer } from './components/ArchitectureVisualizer';
 import { 
   analyzeResume, 
   getCareerRoadmap, 
@@ -127,6 +128,7 @@ export default function App() {
   });
   const [archPrompt, setArchPrompt] = useState('');
   const [customArch, setCustomArch] = useState<any>(null);
+  const [devopsView, setDevopsView] = useState<'code' | 'visual'>('code');
   const [personaAudit, setPersonaAudit] = useState<any>(null);
   const [mockQuestions, setMockQuestions] = useState<any>(null);
   const [panelInterview, setPanelInterview] = useState<any>(null);
@@ -263,33 +265,38 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-      if (firebaseUser) {
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          setUser(userSnap.data() as UserProfile);
-        } else {
-          const isDefaultAdmin = firebaseUser.email === 'pravinwaghmare9356@gmail.com';
-          const newUser: UserProfile = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email || '',
-            displayName: firebaseUser.displayName || 'User',
-            photoURL: firebaseUser.photoURL || '',
-            role: isDefaultAdmin ? 'admin' : 'user'
-          };
-          try {
-            await setDoc(userRef, { ...newUser, createdAt: serverTimestamp() });
-          } catch (error: any) {
-            if (error.message?.includes("insufficient permissions")) {
-              handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
-            } else {
-              console.error("Error creating user profile:", error);
+      try {
+        if (firebaseUser) {
+          const userRef = doc(db, 'users', firebaseUser.uid);
+          const userSnap = await getDoc(userRef);
+          
+          if (userSnap.exists()) {
+            setUser(userSnap.data() as UserProfile);
+          } else {
+            const isDefaultAdmin = firebaseUser.email === 'pravinwaghmare9356@gmail.com';
+            const newUser: UserProfile = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || '',
+              displayName: firebaseUser.displayName || 'User',
+              photoURL: firebaseUser.photoURL || '',
+              role: isDefaultAdmin ? 'admin' : 'user'
+            };
+            try {
+              await setDoc(userRef, { ...newUser, createdAt: serverTimestamp() });
+            } catch (error: any) {
+              if (error.message?.includes("insufficient permissions")) {
+                handleFirestoreError(error, OperationType.WRITE, `users/${firebaseUser.uid}`);
+              } else {
+                console.error("Error creating user profile:", error);
+              }
             }
+            setUser(newUser);
           }
-          setUser(newUser);
+        } else {
+          setUser(null);
         }
-      } else {
+      } catch (error) {
+        console.error("Auth state change error:", error);
         setUser(null);
       }
     });
@@ -389,11 +396,15 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
     }
   }, [history]);
 
+  const [loginError, setLoginError] = useState<string | null>(null);
+
   const handleLogin = async () => {
+    setLoginError(null);
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login failed:", error);
+      setLoginError(error.message || "Login failed. Please try again.");
     }
   };
 
@@ -589,6 +600,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
         });
         setDevopsFiles(newFiles);
         setActiveFile(arch.files[0].name);
+        if (arch.structure) setDevopsView('visual');
       }
     } catch (error) {
       console.error(error);
@@ -1445,31 +1457,68 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
         <div className="lg:col-span-3 space-y-6">
           <div className="stat-card h-full min-h-[500px] flex flex-col p-0 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-slate-50/50">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-white border border-border flex items-center justify-center text-emerald-primary">
-                  <Terminal size={16} />
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-white border border-border flex items-center justify-center text-emerald-primary">
+                    <Terminal size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-text-primary">{devopsView === 'code' ? activeFile : 'Architecture Visualizer'}</h4>
+                    <p className="text-[10px] text-text-muted font-mono">{devopsView === 'code' ? 'HCL / YAML / JSON / Python' : 'System Blueprint'}</p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="text-sm font-bold text-text-primary">{activeFile}</h4>
-                  <p className="text-[10px] text-text-muted font-mono">HCL / YAML / JSON / Python</p>
-                </div>
+                
+                {customArch?.structure && (
+                  <div className="flex bg-slate-100 p-1 rounded-lg">
+                    <button 
+                      onClick={() => setDevopsView('code')}
+                      className={cn(
+                        "px-3 py-1 text-[10px] font-bold rounded-md transition-all",
+                        devopsView === 'code' ? "bg-white text-emerald-primary shadow-sm" : "text-text-muted hover:text-text-primary"
+                      )}
+                    >
+                      CODE
+                    </button>
+                    <button 
+                      onClick={() => setDevopsView('visual')}
+                      className={cn(
+                        "px-3 py-1 text-[10px] font-bold rounded-md transition-all",
+                        devopsView === 'visual' ? "bg-white text-emerald-primary shadow-sm" : "text-text-muted hover:text-text-primary"
+                      )}
+                    >
+                      VISUAL
+                    </button>
+                  </div>
+                )}
               </div>
-              <button 
-                onClick={() => {
-                  const code = devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles];
-                  navigator.clipboard.writeText(typeof code === 'string' ? code : JSON.stringify(code, null, 2));
-                }}
-                className="p-2 text-text-muted hover:text-emerald-primary transition-colors"
-              >
-                <Copy size={16} />
-              </button>
+              
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => {
+                    const code = devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles];
+                    navigator.clipboard.writeText(typeof code === 'string' ? code : JSON.stringify(code, null, 2));
+                  }}
+                  className="p-2 text-text-muted hover:text-emerald-primary transition-colors"
+                  title="Copy to clipboard"
+                >
+                  <Copy size={16} />
+                </button>
+              </div>
             </div>
-            <div className="flex-1 p-6 bg-slate-900 font-mono text-xs text-emerald-400 overflow-auto leading-relaxed">
-              <pre className="whitespace-pre-wrap">
-                {typeof (devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles]) === 'string' 
-                  ? (devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles])
-                  : JSON.stringify(devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles], null, 2)}
-              </pre>
+            
+            <div className={cn(
+              "flex-1 p-6 overflow-auto leading-relaxed",
+              devopsView === 'code' ? "bg-slate-900 font-mono text-xs text-emerald-400" : "bg-white"
+            )}>
+              {devopsView === 'code' ? (
+                <pre className="whitespace-pre-wrap">
+                  {typeof (devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles]) === 'string' 
+                    ? (devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles])
+                    : JSON.stringify(devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles], null, 2)}
+                </pre>
+              ) : (
+                <ArchitectureVisualizer structure={customArch.structure} />
+              )}
             </div>
           </div>
 
@@ -1773,6 +1822,12 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
           <button onClick={handleLogin} className="btn-primary max-w-xs">
             <LogIn size={18} /> Sign In with Google
           </button>
+          {loginError && (
+            <div className="mt-4 p-3 bg-red-50 text-red-600 text-xs rounded-lg border border-red-100 flex items-center gap-2 max-w-xs">
+              <AlertCircle size={14} />
+              <span>{loginError}</span>
+            </div>
+          )}
         </div>
       );
     }
@@ -1870,10 +1925,18 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
               </button>
             </div>
           ) : (
-            <button onClick={handleLogin} className="btn-primary">
-              <LogIn size={16} />
-              <span>Sign In</span>
-            </button>
+            <div className="space-y-2">
+              <button onClick={handleLogin} className="btn-primary w-full">
+                <LogIn size={16} />
+                <span>Sign In</span>
+              </button>
+              {loginError && (
+                <div className="p-2 bg-red-50 text-red-600 text-[10px] rounded border border-red-100 flex items-center gap-1">
+                  <AlertCircle size={10} />
+                  <span className="truncate">{loginError}</span>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </aside>
