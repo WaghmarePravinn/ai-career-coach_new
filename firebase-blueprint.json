@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "User account details and role.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "history": {
+      "title": "AI Interaction History",
+      "description": "Previous AI analysis and roadmap results.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "type": { "type": "string", "enum": ["resume", "roadmap", "interview", "job-match", "market-analysis", "cover-letter", "gap-analysis", "video-analysis", "panel-interview", "persona-audit", "mock-questions"] },
+        "input": { "type": "string" },
+        "output": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "type", "input", "output", "createdAt"]
+    },
+    "settings": {
+      "title": "Admin Settings",
+      "description": "Global application settings and API configurations.",
+      "type": "object",
+      "properties": {
+        "openRouterModel": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "Stores user profiles."
+    },
+    "/history/{historyId}": {
+      "schema": "history",
+      "description": "Stores AI interaction history."
+    },
+    "/settings/global": {
+      "schema": "settings",
+      "description": "Stores global admin settings."
+    }
+  }
+}
