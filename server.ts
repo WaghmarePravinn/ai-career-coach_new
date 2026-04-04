@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import dotenv from "dotenv";
 import { Pinecone } from "@pinecone-database/pinecone";
@@ -9,19 +8,18 @@ dotenv.config();
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "" });
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+const PORT = 3000;
 
-  app.use(express.json());
+app.use(express.json());
 
-  // Pinecone Initialization
-  const pc = new Pinecone({
-    apiKey: process.env.PINECONE_API_KEY || "",
-  });
+// Pinecone Initialization
+const pc = new Pinecone({
+  apiKey: process.env.PINECONE_API_KEY || "",
+});
 
-  // OpenRouter Proxy Endpoint
-  app.post("/api/ai/generate", async (req, res) => {
+// OpenRouter Proxy Endpoint
+app.post("/api/ai/generate", async (req, res) => {
     const { prompt, systemInstruction, apiKey: userApiKey, model: userModel } = req.body;
     const apiKey = userApiKey || process.env.OPENROUTER_API_KEY;
     const model = userModel || process.env.OPENROUTER_MODEL || "stepfun/step-3.5-flash:free";
@@ -114,15 +112,17 @@ async function startServer() {
         includeMetadata: true,
       });
 
-      res.json({ matches: queryResponse.matches });
-    } catch (error: any) {
-      console.error("Pinecone Match Error:", error);
-      res.status(500).json({ error: error.message || "Failed to match jobs." });
-    }
-  });
+  res.json({ matches: queryResponse.matches });
+  } catch (error: any) {
+    console.error("Pinecone Match Error:", error);
+    res.status(500).json({ error: error.message || "Failed to match jobs." });
+  }
+});
 
-  // Vite middleware for development
+// Vite middleware for development
+async function setupVite() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -135,10 +135,14 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+}
 
+setupVite();
+
+if (process.env.NODE_ENV !== "production") {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+export default app;
