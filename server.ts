@@ -2,11 +2,11 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { Pinecone } from "@pinecone-database/pinecone";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 dotenv.config();
 
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "" });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "");
 
 const app = express();
 const PORT = 3000;
@@ -18,56 +18,79 @@ const pc = new Pinecone({
   apiKey: process.env.PINECONE_API_KEY || "",
 });
 
-// OpenRouter Proxy Endpoint
+// OpenRouter Proxy Endpoint with Gemini Fallback
 app.post("/api/ai/generate", async (req, res) => {
     const { prompt, systemInstruction, apiKey: userApiKey, model: userModel } = req.body;
-    const apiKey = userApiKey || process.env.OPENROUTER_API_KEY;
-    const model = userModel || process.env.OPENROUTER_MODEL || "stepfun/step-3.5-flash:free";
+    const openRouterApiKey = userApiKey || process.env.OPENROUTER_API_KEY;
+    const geminiApiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
 
-    if (!apiKey) {
-      return res.status(500).json({ error: "OpenRouter API key is not configured. Please add it in Settings." });
+    // Try OpenRouter first if API key is available
+    if (openRouterApiKey) {
+      try {
+        const model = userModel || process.env.OPENROUTER_MODEL || "stepfun/step-3.5-flash:free";
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openRouterApiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
+            "X-Title": "AI Career Coach",
+          },
+          body: JSON.stringify({
+            model: model,
+            messages: [
+              { role: "system", content: systemInstruction || "You are a helpful career coach." },
+              { role: "user", content: prompt }
+            ],
+            max_tokens: 4000,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          const errorMessage = data.error?.message || data.error || response.statusText || "Unknown OpenRouter error";
+          throw new Error(`OpenRouter (${response.status}): ${errorMessage}`);
+        }
+
+        if (data.error) {
+          const errorMessage = data.error.message || data.error || "OpenRouter API error";
+          throw new Error(errorMessage);
+        }
+
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+          console.error("Unexpected OpenRouter response format:", data);
+          throw new Error("Invalid response format from OpenRouter.");
+        }
+
+        return res.json({ text: data.choices[0].message.content });
+      } catch (error: any) {
+        console.warn("OpenRouter failed, falling back to Gemini:", error.message);
+        // Fall through to Gemini if OpenRouter fails
+      }
+    }
+
+    // Fallback to Google Gemini
+    if (!geminiApiKey) {
+      return res.status(500).json({
+        error: "No AI service configured. Please add OPENROUTER_API_KEY or GOOGLE_API_KEY in environment variables."
+      });
     }
 
     try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
-          "X-Title": "AI Career Coach",
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: "system", content: systemInstruction || "You are a helpful career coach." },
-            { role: "user", content: prompt }
-          ],
-          max_tokens: 4000,
-        }),
-      });
+      const fullPrompt = systemInstruction
+        ? `${systemInstruction}\n\nUser: ${prompt}`
+        : prompt;
 
-      const data = await response.json();
+      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      const result = await model.generateContent(fullPrompt);
+      const response = await result.response;
+      const text = response.text();
 
-      if (!response.ok) {
-        const errorMessage = data.error?.message || data.error || response.statusText || "Unknown OpenRouter error";
-        throw new Error(`OpenRouter (${response.status}): ${errorMessage}`);
-      }
-
-      if (data.error) {
-        const errorMessage = data.error.message || data.error || "OpenRouter API error";
-        throw new Error(errorMessage);
-      }
-
-      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-        console.error("Unexpected OpenRouter response format:", data);
-        throw new Error("Invalid response format from OpenRouter.");
-      }
-
-      res.json({ text: data.choices[0].message.content });
+      res.json({ text: text });
     } catch (error: any) {
-      console.error("OpenRouter Error Details:", error);
-      res.status(500).json({ error: error.message || "Failed to generate AI response." });
+      console.error("Gemini Error Details:", error);
+      res.status(500).json({ error: error.message || "Failed to generate AI response with Gemini." });
     }
   });
 
@@ -77,10 +100,17 @@ app.post("/api/ai/generate", async (req, res) => {
     const pineconeApiKey = process.env.PINECONE_API_KEY;
     const pineconeHost = process.env.PINECONE_HOST;
     const indexName = process.env.PINECONE_INDEX_NAME || "careerpath-ai";
+    const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
     if (!pineconeApiKey || !pineconeHost) {
       return res.status(500).json({ 
         error: "Pinecone is not fully configured. Please add PINECONE_API_KEY and PINECONE_HOST in the Settings panel." 
+      });
+    }
+
+    if (!geminiApiKey) {
+      return res.status(500).json({ 
+        error: "Google AI API key is not configured. Please add GEMINI_API_KEY or GOOGLE_API_KEY in environment variables." 
       });
     }
 
@@ -96,11 +126,25 @@ app.post("/api/ai/generate", async (req, res) => {
         if (jobType) queryText += `\nJob Type: ${jobType}`;
       }
 
-      const result = await genAI.models.embedContent({
-        model: "gemini-embedding-2-preview",
-        contents: [queryText],
+      // Generate embeddings using Google AI API directly
+      const embeddingResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: {
+            parts: [{ text: queryText }],
+          },
+        }),
       });
-      const embedding = result.embeddings[0].values;
+
+      if (!embeddingResponse.ok) {
+        throw new Error(`Embedding API error: ${embeddingResponse.statusText}`);
+      }
+
+      const embeddingData = await embeddingResponse.json();
+      const embedding = embeddingData.embedding.values;
 
       // 2. Query Pinecone
       // Re-initialize Pinecone client with the current API key to be safe

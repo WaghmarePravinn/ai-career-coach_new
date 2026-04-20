@@ -41,7 +41,7 @@ import {
   FileCode,
   Copy
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from './lib/utils';
 import { handleFirestoreError, OperationType } from './lib/firestore-utils';
@@ -588,19 +588,32 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
   const handleGenerateArch = async () => {
     if (!archPrompt.trim()) return;
     setLoading(true);
+    setSecurityAudit(null);
     try {
       const arch = await generateArchitecture(archPrompt, apiSettings);
       setCustomArch(arch);
       
-      // Update devopsFiles with generated content
+      const newFiles: any = { ...devopsFiles };
       if (arch.files && arch.files.length > 0) {
-        const newFiles: any = { ...devopsFiles };
         arch.files.forEach((file: any) => {
-          newFiles[file.name] = { label: file.name, code: file.content };
+          if (file?.name && file?.content) {
+            newFiles[file.name] = { label: file.name, code: file.content };
+          }
         });
+      }
+
+      if (Object.keys(newFiles).length > 0) {
         setDevopsFiles(newFiles);
-        setActiveFile(arch.files[0].name);
-        if (arch.structure) setDevopsView('visual');
+        if (!newFiles[activeFile]) {
+          const firstFileName = Object.keys(newFiles)[0];
+          setActiveFile(firstFileName);
+        }
+      }
+
+      if (arch.structure) {
+        setDevopsView('visual');
+      } else {
+        setDevopsView('code');
       }
     } catch (error) {
       console.error(error);
@@ -1517,7 +1530,13 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
                     : JSON.stringify(devopsFiles[activeFile as keyof typeof devopsFiles]?.code || devopsFiles[activeFile as keyof typeof devopsFiles], null, 2)}
                 </pre>
               ) : (
-                <ArchitectureVisualizer structure={customArch.structure} />
+                customArch?.structure ? (
+                  <ArchitectureVisualizer structure={customArch.structure} />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-text-muted">
+                    No architecture structure available to visualize yet. Generate architecture with a more detailed prompt.
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -1972,7 +1991,6 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 bg-bg">
-          <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}
@@ -1983,7 +2001,6 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]` 
             >
               {renderContent()}
             </motion.div>
-          </AnimatePresence>
         </div>
       </main>
 
