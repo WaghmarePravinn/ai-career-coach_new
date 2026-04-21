@@ -110,11 +110,19 @@ const ComponentNode: React.FC<{ component: any; label?: string; depth: number }>
 };
 
 export const ArchitectureVisualizer: React.FC<ArchitectureVisualizerProps> = ({ structure }) => {
-  if (!structure) return null;
+  if (!structure) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-text-muted">
+        No architecture structure is available to display.
+      </div>
+    );
+  }
 
   const components = structure.components || (
     Array.isArray(structure) ? structure : Object.entries(structure).filter(([k]) => !['label', 'description'].includes(k))
   );
+
+  const hasComponents = Array.isArray(components) ? components.length > 0 : Object.keys(components || {}).length > 0;
 
   return (
     <div className="space-y-6">
@@ -128,15 +136,21 @@ export const ArchitectureVisualizer: React.FC<ArchitectureVisualizerProps> = ({ 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {Array.isArray(components) ? components.map((comp, idx) => {
-          if (Array.isArray(comp)) {
-            const [key, value] = comp;
-            return <ComponentNode key={`${key}-${idx}`} component={value} label={key} depth={0} />;
-          }
-          return <ComponentNode key={`${comp.label}-${idx}`} component={comp} depth={0} />;
-        }) : null}
-      </div>
+      {!hasComponents ? (
+        <div className="flex h-full items-center justify-center text-sm text-text-muted">
+          No components found in the architecture structure.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {Array.isArray(components) ? components.map((comp, idx) => {
+            if (Array.isArray(comp)) {
+              const [key, value] = comp;
+              return <ComponentNode key={`${key}-${idx}`} component={value} label={key} depth={0} />;
+            }
+            return <ComponentNode key={`${comp.label || idx}-${idx}`} component={comp} depth={0} />;
+          }) : null}
+        </div>
+      )}
     </div>
   );
 };

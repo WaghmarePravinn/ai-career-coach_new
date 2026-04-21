@@ -9,11 +9,12 @@ export default defineConfig(({mode}) => {
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
-    resolve: {
+    },    optimizeDeps: {
+      exclude: ['pdfjs-dist', 'motion-dom', 'framer-motion'],
+    },    resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
-      },
+        '@': path.resolve(__dirname, '.'),        'motion/react': path.resolve(__dirname, 'node_modules/motion/dist/cjs/react.js'),
+        'motion': path.resolve(__dirname, 'node_modules/motion/dist/cjs/index.js'),      },
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
